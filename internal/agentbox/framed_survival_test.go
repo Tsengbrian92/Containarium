@@ -51,7 +51,33 @@ func TestSpawn_SurvivesParentExit(t *testing.T) {
 
 			raw, err := os.ReadFile(exitPath)
 			if err != nil {
-				t.Fatalf("no exit sidecar — the run did not survive the parent: %v", err)
+				// #2174: distinguish a merely slow child from a child/wrapper
+				// that died before it could write the exit sidecar.
+				logData, logErr := os.ReadFile(logPath)
+				if logErr != nil {
+					logData = []byte("<unable to read log: " + logErr.Error() + ">")
+				}
+
+				recordData, recordErr := os.ReadFile(recordPathIn(dir, name))
+				if recordErr != nil {
+					t.Fatalf(
+						"timed out waiting for exit sidecar: %v\nlog: %q\nrun record: %v",
+						err, logData, recordErr,
+					)
+				}
+
+				record, decodeErr := DecodeRunRecord(recordData)
+				if decodeErr != nil {
+					t.Fatalf(
+						"timed out waiting for exit sidecar: %v\nlog: %q\nrun record decode: %v",
+						err, logData, decodeErr,
+					)
+				}
+
+				t.Fatalf(
+					"timed out waiting for exit sidecar: %v\nlog: %q\nchild pid: %d\nchild alive: %t",
+					err, logData, record.PID, isAlive(record.PID),
+				)
 			}
 			code := strings.Fields(string(raw))
 			if len(code) == 0 || code[0] != "5" {
